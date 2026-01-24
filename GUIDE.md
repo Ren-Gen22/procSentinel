@@ -1,35 +1,40 @@
-# Procwatch Guide
+# ProcSentinel: A Hybrid Process Monitoring System for Linux Threat Detection
 
-## Introduction
+## 1. Introduction
 
 Procwatch is a lightweight, heuristic-based process monitoring tool for Linux. It is designed to identify suspicious processes running on your system by analyzing various process attributes and assigning a risk score. When a process's score exceeds a configurable threshold, `procwatch` can alert you, kill the process, and/or dump its artifacts for later forensic analysis.
 
-## How it Works
+### 1.1 Contributions
+
+The main contributions of this work include: 
+
+First, a comprehensive heuristic-based detection framework that identifies suspicious process behaviors through configurable weighted scoring mechanisms. Second, an integrated machine learning component that provides anomaly detection capabilities using baseline models trained on normal system behavior. Third, a flexible architecture that enables real-time process monitoring with configurable response actions including alerting, process termination, and forensic artifact collection.
+
+### 1.2 Scope
+
+This system addresses the detection of various threat categories including fileless malware execution, processes running from temporary directories, memory manipulation techniques, process masquerading, and anomalous network behaviors. The tool operates entirely within the Linux `/proc` filesystem, providing lightweight monitoring without requiring kernel modifications or specialized hardware.
+
+## 2. System Overview
 
 Procwatch operates in two main modes: `scan` and `train`.
 
-### Scan Mode
+### 2.1 Scan Mode
 
-In `scan` mode, `procwatch` performs the following steps:
+The scan mode implements a four-stage pipeline for threat detection. First, during the **Process Collection** stage, the system iterates through all running processes in the `/proc` filesystem. Second, in the **Analysis** stage, it gathers comprehensive information about each process including its executable, command line, memory maps, parent process, environment variables, resource usage, and network connections. Third, during **Heuristic Scoring**, the system applies a set of heuristics to each process to identify suspicious characteristics, where each matching heuristic adds a weighted score to the process's total risk score with configurable weights. Fourth, in the **ML Scoring** stage, if a trained model is available, `procwatch` calculates an anomaly score based on the process's features, which is then multiplied by a configurable weight and added to the total score.
 
-1.  **Process Collection**: It iterates through all running processes in the `/proc` filesystem.
-2.  **Analysis**: For each process, it gathers information about its executable, command line, memory maps, parent process, environment variables, resource usage, and network connections.
-3.  **Heuristic Scoring**: It applies a set of heuristics to each process to identify suspicious characteristics. Each heuristic that matches adds a weighted score to the process's total risk score. The weights for each heuristic are configurable.
-4.  **ML Scoring**: If a trained model is available, `procwatch` will also calculate an anomaly score based on the process's features. This score is then multiplied by a configurable weight and added to the total score.
-5.  **Action**: If a process's total score exceeds the configured `min_score`, it is flagged as a finding. Based on the command-line arguments, `procwatch` can:
-    *   Print an alert to the console.
-    *   Kill the process.
-    *   Dump the process's artifacts to a directory.
-    *   Stop the scan.
+### 2.2 Action Stage
 
-### Train Mode
+If a process's total score exceeds the configured `min_score`, it is flagged as a finding. The system can then execute multiple response actions based on configuration. These actions include printing a detailed alert to the console, killing the process using appropriate signals, dumping the process's artifacts to a specified directory for forensic analysis, or stopping the scan after detecting the first suspicious process.
 
-In `train` mode, `procwatch` collects feature data from all running processes for a specified duration. It then uses this data to train a baseline model for anomaly detection. This model can then be used in `scan` mode to improve the detection of suspicious processes. Two types of models are supported: a simple `ZScoreModel` and a more advanced `IsolationForestModel` from `scikit-learn`.
+### 2.3 Train Mode
+
+In train mode, `procwatch` collects feature data from all running processes for a specified duration. It then uses this data to train a baseline model for anomaly detection. This model can then be used in scan mode to improve the detection of suspicious processes. Two types of models are supported: a simple `ZScoreModel` and a more advanced `IsolationForestModel` from `scikit-learn`.
 
 ---
-## Structure
 
-The project is organized into the following directory structure:
+## 3. Architecture
+
+The project is organized into a modular directory structure that separates concerns across multiple components.
 
 ```
 .
@@ -50,149 +55,74 @@ The project is organized into the following directory structure:
 └── GUIDE.md
 ```
 
-*   **`procwatch.py`**: The main entry point for the command-line tool.
-*   **`procwatch/`**: This directory contains the core logic of the application.
-    *   **`__init__.py`**: Initializes the `procwatch` package.
-    *   **`cli.py`**: Defines the command-line interface and its arguments.
-    *   **`config.py`**: Manages the loading of the configuration from the YAML file.
-    *   **`features.py`**: Contains the logic for extracting features from processes for the machine learning model.
-    *   **`heuristics.py`**: Defines the heuristics used to score processes for suspicious activity.
-    *   **`ml.py`**: Contains the logic for training and using the machine learning models.
-    *   **`models.py`**: Defines the data models used in the application.
-    *   **`network.py`**: Contains the logic for analyzing network connections.
-    *   **`proc.py`**: Contains the logic for interacting with the `/proc` filesystem.
-    *   **`utils.py`**: Contains utility functions used throughout the application.
-    *   **`whitelist.py`**: Contains the logic for whitelisting processes.
-*   **`README.md`**: A brief overview of the project.
-*   **`GUIDE.md`**: A detailed guide to the project.
+The main entry point `procwatch.py` provides the command-line interface for the tool. The core logic resides within the `procwatch/` directory, which contains several specialized modules. The `__init__.py` file initializes the package structure. The `cli.py` module defines the command-line interface and its arguments. Configuration management is handled by `config.py`, which loads settings from YAML files. Feature extraction for machine learning is implemented in `features.py`. The `heuristics.py` module defines the scoring rules used to identify suspicious processes. Machine learning model training and inference logic is contained in `ml.py`. Data structures and models are defined in `models.py`. Network connection analysis is performed by `network.py`. The `proc.py` module handles all interactions with the Linux `/proc` filesystem. Utility functions used throughout the application are provided by `utils.py`. Finally, `whitelist.py` implements the logic for whitelisting trusted processes and users.
 
 ---
 
 
-## Features
+## 4. Hybrid Detection Methodology
 
 Procwatch uses a combination of heuristics and machine learning to detect suspicious processes.
 
-### Heuristic-based Detection
+### 4.1 Heuristic-based Detection
 
-The following heuristics are used to score processes. The weights for each of these are configurable in the `procwatch.yaml` file.
+The system employs multiple heuristics to score processes, with configurable weights specified in the `procwatch.yaml` file. 
 
-*   **Deleted Executable**: The process's executable file has been deleted from disk while the process is still running. This is a common technique used by malware to hide its presence.
-*   **Fileless Execution (memfd)**: The process is running from a `memfd` file descriptor, which is a form of fileless execution.
-*   **Running from Temp Directory**: The process is running from a temporary directory such as `/tmp`, `/var/tmp`, or `/dev/shm`. These directories are often used by malware to store and execute payloads.
-*   **World-Writable Executable**: The process's executable file is world-writable, which means any user on the system can modify it.
-*   **W+X Memory Regions**: The process has memory regions that are both writable and executable. This is a common characteristic of shellcode and other in-memory threats.
-*   **Empty Command Line**: The process has an empty command line, which can be an indicator of process tampering.
-*   **Short Command Line**: The process has a very short command line, which can be used to hide malicious activity.
-*   **Obfuscated Command Line**: The command line contains "base64", which could indicate obfuscation.
-*   **Code Execution in Command Line**: The command line contains "eval" or "exec", which could indicate that code is being executed from the command line.
-*   **Name/Argv Mismatch**: The process name is different from the first argument in the command line (`argv[0]`). This can be a sign of process masquerading.
-*   **Unusual Parent Process**: The process has a parent process that is not its typical parent. For example, `bash` running as a child of `apache2`.
-*   **LD_PRELOAD/LD_LIBRARY_PATH**: The process has the `LD_PRELOAD` or `LD_LIBRARY_PATH` environment variables set, which can be used to load malicious libraries.
-*   **Ptraced**: The process is being traced by another process using `ptrace`. This can be used for debugging, but also for malicious purposes like code injection.
-*   **High CPU Usage**: The process is consuming a high amount of CPU, which could indicate malicious activity like cryptomining.
-*   **Running without a TTY**: A shell or interpreter (like `bash` or `python`) is running without a terminal, which could be a sign of a reverse shell.
-*   **Outbound to Watched Port**: The process has an outbound network connection to a port on a configurable watch list.
-*   **Many Outbound Connections**: The process has a large number of outbound network connections.
-*   **No Executable Path**: The process has no executable path. This is common for kernel threads, but can also be a sign of a malicious process.
+The **Deleted Executable** heuristic identifies processes whose executable files have been deleted from disk while still running, a common technique used by malware to hide its presence. **Fileless Execution (memfd)** detection targets processes running from `memfd` file descriptors, representing a form of fileless execution. The **Running from Temp Directory** heuristic flags processes executing from temporary directories such as `/tmp`, `/var/tmp`, or `/dev/shm`, which are frequently used by malware for payload storage and execution.
 
-### Machine Learning-based Detection
+The **World-Writable Executable** check identifies processes whose executable files are world-writable, allowing any system user to modify them. **W+X Memory Regions** detection finds processes with memory regions that are both writable and executable, a common characteristic of shellcode and in-memory threats. The **Empty Command Line** heuristic detects processes with empty command lines, potentially indicating process tampering. Similarly, **Short Command Line** detection flags processes with very short command lines that may be used to hide malicious activity.
 
-If you train a model, `procwatch` can use it to calculate an anomaly score for each process. This score is based on a set of features extracted from the process, including:
+The **Obfuscated Command Line** heuristic identifies command lines containing "base64", suggesting possible obfuscation. **Code Execution in Command Line** detection flags command lines containing "eval" or "exec", indicating potential code execution from the command line. The **Name/Argv Mismatch** check identifies discrepancies between the process name and the first command-line argument (`argv[0]`), a sign of process masquerading.
 
-*   CPU usage
-*   Memory usage
-*   Number of threads
-*   Number of open file descriptors
-*   Number of network connections
-*   And more...
+The **Unusual Parent Process** heuristic detects processes with atypical parent processes, such as `bash` running as a child of `apache2`. **LD_PRELOAD/LD_LIBRARY_PATH** detection identifies processes with these environment variables set, which can be exploited to load malicious libraries. The **Ptraced** heuristic flags processes being traced by another process using `ptrace`, which can indicate debugging or malicious code injection.
 
-The anomaly score is then multiplied by a configurable weight and added to the heuristic score to get the total risk score.
+The **High CPU Usage** check identifies processes consuming excessive CPU resources, potentially indicating malicious activity like cryptomining. **Running without a TTY** detection flags shells or interpreters (like `bash` or `python`) running without terminals, possible indicators of reverse shells. The **Outbound to Watched Port** heuristic detects processes with outbound network connections to ports on a configurable watch list. **Many Outbound Connections** identifies processes with unusually large numbers of outbound network connections. Finally, the **No Executable Path** heuristic flags processes lacking an executable path, which while common for kernel threads, can also indicate malicious processes.
 
-### Actions
+### 4.2 Machine Learning-based Detection
 
-When a suspicious process is found, `procwatch` can take the following actions:
+When a trained model is available, `procwatch` calculates an anomaly score for each process based on extracted features. These features include CPU usage, memory usage, number of threads, number of open file descriptors, number of network connections, and additional process characteristics. The anomaly score is then multiplied by a configurable weight and added to the heuristic score to produce the total risk score.
 
-*   **Alert**: Print a detailed alert to the console.
-*   **Kill**: Kill the process using `SIGKILL`.
-*   **Dump**: Dump the process's artifacts to a directory for forensic analysis.
-*   **Stop**: Stop the scan after the first alert.
+### 4.3 Response Actions
+
+When a suspicious process is detected, `procwatch` can execute several response actions. The **Alert** action prints a detailed alert message to the console. The **Kill** action terminates the process using `SIGKILL`. The **Dump** action creates forensic artifacts of the process in a specified directory for later analysis. The **Stop** action halts the scan immediately after the first alert is generated.
 
 ---
 
-## Usage
+## 5. Implementation
 
-Procwatch is a command-line tool with two main subcommands: `scan` and `train`.
+Procwatch is implemented as a command-line tool with two main subcommands: `scan` and `train`.
 
-### `scan`
+### 5.1 Scan Command
 
-The `scan` command is used to scan the system for suspicious processes.
+The `scan` command performs system-wide process monitoring to detect suspicious activities. The command accepts the following parameters:
 
 ```bash
 procwatch scan [OPTIONS]
 ```
 
-**Options:**
+The `--interval <SECONDS>` parameter enables continuous scanning at specified intervals; without this parameter, a single scan is performed. The `--config <PATH>` option specifies a custom YAML configuration file path. The `--model <PATH>` parameter provides the path to a trained machine learning model. The `--min-score <FLOAT>` option overrides the minimum score threshold from the configuration file. The `--stop-on-alert` flag causes the scan to terminate after detecting the first suspicious process. The `--kill-on-alert` flag enables automatic termination of suspicious processes. The `--dump <DIRECTORY>` parameter specifies a directory for storing forensic artifacts of suspicious processes.
 
-*   `--interval <SECONDS>`: Run the scan every `<SECONDS>` seconds. If not specified, a single scan is performed.
-*   `--config <PATH>`: Path to a custom YAML configuration file.
-*   `--model <PATH>`: Path to a trained ML model.
-*   `--min-score <FLOAT>`: Override the `min_score` from the config file.
-*   `--stop-on-alert`: Stop the scan after the first suspicious process is found.
-*   `--kill-on-alert`: Kill any suspicious processes that are found.
-*   `--dump <DIRECTORY>`: Dump artifacts of suspicious processes to the specified directory.
+Example usage scenarios include running a single scan with the default configuration, executing continuous scans at 10-second intervals, automatically killing suspicious processes upon detection, and dumping artifacts to `/tmp/procwatch_dumps` for forensic analysis.
 
-**Examples:**
+### 5.2 Train Command
 
-Run a single scan:
-```bash
-procwatch scan
-```
-
-Run a continuous scan every 10 seconds:
-```bash
-procwatch scan --interval 10
-```
-
-Kill any suspicious processes found:
-```bash
-procwatch scan --kill-on-alert
-```
-
-Dump artifacts of suspicious processes to `/tmp/procwatch_dumps`:
-```bash
-procwatch scan --dump /tmp/procwatch_dumps
-```
-
-### `train`
-
-The `train` command is used to create a baseline model for the machine learning-based detection.
+The `train` command creates a baseline model for machine learning-based anomaly detection.
 
 ```bash
 procwatch train [OPTIONS]
 ```
 
-**Options:**
+The `--duration <SECONDS>` parameter sets the training duration (default: 60 seconds). The `--interval <SECONDS>` option specifies the sampling interval during training (default: 5.0 seconds). The `--config <PATH>` parameter provides a custom YAML configuration file path. The `--model <PATH>` option specifies where to save the trained model (default: `~/.local/share/procwatch/model.json`).
 
-*   `--duration <SECONDS>`: The duration of the training in seconds. The default is 60 seconds.
-*   `--interval <SECONDS>`: The sampling interval during training. The default is 5.0 seconds.
-*   `--config <PATH>`: Path to a custom YAML configuration file.
-*   `--model <PATH>`: Path to save the trained model. The default is `~/.local/share/procwatch/model.json`.
-
-**Example:**
-
-Train a model for 120 seconds:
-```bash
-procwatch train --duration 120
-```
+A typical training session involves collecting process feature data for a specified duration, such as 120 seconds, to establish a baseline of normal system behavior.
 
 ---
 
-## Configuration
+## 6. Configuration
 
-Procwatch can be configured using a YAML file. By default, it looks for `~/.procwatch.yaml`, but you can specify a different path using the `--config` option.
+Procwatch uses a YAML-based configuration system. By default, the tool searches for `~/.procwatch.yaml`, though alternative paths can be specified using the `--config` option.
 
-The default configuration is as follows:
+The default configuration includes the following parameters:
 
 ```yaml
 min_score: 2
@@ -228,26 +158,8 @@ whitelist:
     paths: []
 ```
 
-**Options:**
+The `min_score` parameter defines the minimum total score threshold for classifying a process as suspicious. The `cpu_high` setting specifies the CPU usage percentage threshold for the high CPU usage heuristic. The `ports` parameter contains a comma-separated list of network ports monitored for outbound connections. The `topk` value limits the maximum number of findings reported in a single scan. The `ml_weight` parameter determines the weight applied to machine learning anomaly scores. The `use_sklearn` flag controls whether to use the `IsolationForestModel` from `scikit-learn` (when true) or the simpler `ZScoreModel` (when false) for training. The `weights` dictionary assigns importance values to each heuristic. The `whitelist` configuration defines rules for exempting trusted processes, users, paths, and executable hashes from detection.
 
-*   `min_score`: The minimum total score for a process to be considered suspicious.
-*   `cpu_high`: The CPU usage percentage above which a process is considered to have high CPU usage.
-*   `ports`: A comma-separated list of ports to watch for outbound connections.
-*   `topk`: The maximum number of findings to report in a single scan.
-*   `ml_weight`: The weight to apply to the machine learning anomaly score.
-*   `use_sklearn`: Whether to use the `IsolationForestModel` from `scikit-learn` for training. If `false`, a simpler `ZScoreModel` is used.
-*   `weights`: A dictionary of weights for each heuristic.
-*   `whitelist`: A set of rules to whitelist processes, users, paths, and executable hashes.
+### 6.1 Forensic Artifact Collection
 
-## Dumping Artifacts
-
-When you use the `--dump` option, `procwatch` will create a directory for each suspicious process that it finds. The directory will be named `<PID>_<TIMESTAMP>` and will contain the following files:
-
-*   `cmdline`: The process's command line.
-*   `environ`: The process's environment variables.
-*   `exe`: A copy of the process's executable file.
-*   `exe.error`: If there was an error copying the executable, this file will contain the error message.
-*   `maps`: The process's memory maps.
-*   `fds`: The process's open file descriptors.
-
-These artifacts can be used for further investigation and forensic analysis.
+When the `--dump` option is enabled, `procwatch` creates a dedicated directory for each detected suspicious process. Each directory is named using the pattern `<PID>_<TIMESTAMP>` and contains multiple forensic artifacts. The `cmdline` file stores the process's command line arguments. The `environ` file captures the process's environment variables. The `exe` file contains a copy of the process's executable binary. If executable copying fails, an `exe.error` file documents the error message. The `maps` file records the process's memory map structure. The `fds` file lists the process's open file descriptors. These collected artifacts enable comprehensive forensic investigation and post-incident analysis.
